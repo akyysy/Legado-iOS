@@ -1,0 +1,14 @@
+name: Runner Probe 3
+on:
+  workflow_dispatch:
+jobs:
+  mac_v4:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo ok-v4
+  linux_v5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: echo ok-v5-linux
