@@ -6,10 +6,6 @@ on:
   push:
   workflow_dispatch:
 
-concurrency:
-  group: ci-ipa-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     name: Build unsigned IPA
