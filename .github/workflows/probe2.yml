@@ -1,0 +1,10 @@
+name: Runner Probe 2
+on:
+  workflow_dispatch:
+jobs:
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - run: sw_vers && xcodebuild -version
