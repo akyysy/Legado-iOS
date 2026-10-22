@@ -3,7 +3,6 @@ name: CI · Build Unsigned IPA
 # 自建流水线：任意分支 push 或手动触发，产出一个未签名 IPA 作为 artifact。
 # 不跑版本一致性校验、不发 Release，方便在 fork 上验证改动。
 on:
-  push:
   workflow_dispatch:
 
 concurrency:
