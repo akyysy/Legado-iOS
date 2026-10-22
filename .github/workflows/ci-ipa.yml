@@ -1,0 +1,81 @@
+name: CI · Build Unsigned IPA
+
+# 自建流水线：任意分支 push 或手动触发，产出一个未签名 IPA 作为 artifact。
+# 不跑版本一致性校验、不发 Release，方便在 fork 上验证改动。
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_15.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          fi
+          xcodebuild -version
+          xcode-select -p
+
+      - name: SwiftPM resolve
+        run: swift package resolve
+
+      - name: Rule engine tests (hard gate)
+        run: swift test --filter LegacyIndexedSelectorTests
+
+      - name: Full test suite (soft gate)
+        continue-on-error: true
+        run: swift test
+
+      - name: Build archive (unsigned)
+        run: |
+          mkdir -p Sources/LegadoApp/Resources/BaiduTTS
+          mkdir -p Vendor/BaiduSpeech/include
+          : > Vendor/BaiduSpeech/BaiduSpeech-Bridging-Header.h
+          : > /tmp/empty.c
+          cc -c /tmp/empty.c -o /tmp/empty.o
+          ar rcs Vendor/BaiduSpeech/libBDSpeechTTSBaseKit.a /tmp/empty.o
+          xcodebuild -project Legado.xcodeproj \
+            -scheme LegadoApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/LegadoApp.xcarchive \
+            -derivedDataPath build/DerivedData \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OBJC_BRIDGING_HEADER="" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS="NO_BAIDU_TTS"
+
+      - name: Package IPA
+        run: |
+          APP=build/LegadoApp.xcarchive/Products/Applications/LegadoApp.app
+          BUILT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
+          BUILD_NO=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
+          SHORT=$(git rev-parse --short HEAD)
+          echo "APP_VERSION=${BUILT}" >> "$GITHUB_ENV"
+          echo "APP_BUILD=${BUILD_NO}" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${SHORT}" >> "$GITHUB_ENV"
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          (cd build && zip -qry "Legado-${BUILT}-${BUILD_NO}-${SHORT}.ipa" Payload)
+          ls -lh build/*.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v5
+        with:
+          name: Legado-iOS-${{ env.APP_VERSION }}-${{ env.SHORT_SHA }}
+          path: build/*.ipa
+          retention-days: 14

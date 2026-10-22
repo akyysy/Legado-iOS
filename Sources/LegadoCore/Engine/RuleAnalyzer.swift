@@ -376,33 +376,42 @@ public class RuleAnalyzer {
         return []
     }
 
-    /// Selects elements from a parent element given a selector, supporting Legado's `tag.index` syntax (e.g. `li.1`, `a.-1`)
+    /// Selects elements from a parent element given a selector, supporting Legado's `tag.index` syntax (e.g. `li.1`, `a.-1`).
+    ///
+    /// 书源里 `.index` 不只跟在标签后面：老写法 `class.bookname.0@tag.a.0@text`
+    /// 在经过 `RuleTokenizer.normalizeSelector` 之后会变成 `.bookname.0` / `a.0`，
+    /// 这里的下标必须对任意选择器（`.class`、`#id`、标签、复合选择器）生效，
+    /// 否则带下标的 class 规则会整条取不到元素，搜索/目录直接为空。
     private func selectElements(from element: Element, selector: String) -> [Element] {
         let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pattern = #"^([a-zA-Z0-9_\-\*]+)\.(-?\d+)$"#
-        if let regex = try? NSRegularExpression(pattern: pattern),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)) {
-            if let tagRange = Range(match.range(at: 1), in: trimmed),
-               let indexRange = Range(match.range(at: 2), in: trimmed),
-               let index = Int(trimmed[indexRange]) {
-                let tag = String(trimmed[tagRange])
-                if let selected = try? element.select(tag) {
-                    let all = selected.array()
-                    if index >= 0 && index < all.count {
-                        return [all[index]]
-                    } else if index < 0 && (all.count + index) >= 0 {
-                        return [all[all.count + index]]
-                    } else {
-                        return []
-                    }
-                }
+        if let (base, index) = Self.splitIndexSuffix(trimmed) {
+            let all = (try? element.select(base))?.array() ?? []
+            if index >= 0 {
+                return index < all.count ? [all[index]] : []
             }
+            let position = all.count + index
+            return position >= 0 && position < all.count ? [all[position]] : []
         }
 
         if let selected = try? element.select(trimmed) {
             return selected.array()
         }
         return []
+    }
+
+    /// 把选择器尾部的 `.N` / `.-N` 下标拆出来，例如 `a.0` -> ("a", 0)、`.bookname.0` -> (".bookname", 0)。
+    /// 只认「点 + 纯数字」结尾，`div.mt-2` 这类类名不会被误拆。
+    static func splitIndexSuffix(_ selector: String) -> (base: String, index: Int)? {
+        let pattern = #"^(.+?)\.(-?\d{1,7})$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: selector, options: [], range: NSRange(location: 0, length: selector.utf16.count)),
+              let baseRange = Range(match.range(at: 1), in: selector),
+              let indexRange = Range(match.range(at: 2), in: selector),
+              let index = Int(selector[indexRange])
+        else { return nil }
+        let base = String(selector[baseRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty, base != "." else { return nil }
+        return (base, index)
     }
 
     private func evaluateJsonSteps(steps: [RuleStep], json: Any) -> [Any] {
